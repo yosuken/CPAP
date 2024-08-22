@@ -2,7 +2,7 @@
 
 [description]
 CPAP - Clustering and Phylogenetic Analyzer of Proteins.
-CPAP generates heatmap-based visualization for exploration of protein similarity.
+CPAP generates heatmap-based visualization according to BLASTp protein identity.
 
 CPAP first computes sequence identity based on BLASTp results, then converted into an identity matrix and visualizes it by a heatmap and a dendrogram.
 

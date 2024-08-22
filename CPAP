@@ -20,7 +20,7 @@ read -r -d '' usage <<EOF
 
 [1;32m[description][0m
 $PROGNAME - Clustering and Phylogenetic Analyzer of Proteins.
-$PROGNAME generates heatmap-based visualization for exploration of protein similarity.
+$PROGNAME generates heatmap-based visualization according to BLASTp protein identity.
 
 $PROGNAME first computes sequence identity based on BLASTp results, then converted into an identity matrix and visualizes it by a heatmap and a dendrogram.
 
