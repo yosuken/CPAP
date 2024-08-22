@@ -17,11 +17,11 @@ $ CPAP [options] <input fasta> <output dir>
                               https://blast.ncbi.nlm.nih.gov/Blast.cgi?PAGE_TYPE=BlastDocs&DOC_TYPE=Download
     - ruby (ver >=2.0)
     - R (ver >=3.0)
-                - R package 'gplots'     -- is used for heatmap drawing. (for install, try install.packages('gplots') in R terminal)
-    - R package 'phylogram'  -- is used for generation of a newick formatted dendrogram.
-                - R package 'dendextend' -- [optional] This is requried when a phylogenetic tree is NOT given (without "--phy" or "--phy-as-chronogram").
-                - R package 'ape'        -- [optional] This is requried when a phylogenetic tree is given (with "--phy" or "--phy-as-chronogram").
-                - R package 'phangorn'   -- [optional] This is requried when a phylogenetic tree is given (with "--phy" or "--phy-as-chronogram").
+      - R package 'gplots'     -- is used for heatmap drawing. (for install, try install.packages('gplots') in R terminal)
+      - R package 'phylogram'  -- is used for generation of a newick formatted dendrogram.
+      - R package 'dendextend' -- [optional] This is requried when a phylogenetic tree is NOT given (without "--phy" or "--phy-as-chronogram").
+      - R package 'ape'        -- [optional] This is requried when a phylogenetic tree is given (with "--phy" or "--phy-as-chronogram").
+      - R package 'phangorn'   -- [optional] This is requried when a phylogenetic tree is given (with "--phy" or "--phy-as-chronogram").
 
 [options]
   (general)

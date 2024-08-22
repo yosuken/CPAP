@@ -33,13 +33,13 @@ $ $PROGNAME [options] <input fasta> <output dir>
 [1;32m[dependencies][0m
     - blastp, makeblastdb  -- are included in the BLAST+ program;
                               https://blast.ncbi.nlm.nih.gov/Blast.cgi?PAGE_TYPE=BlastDocs&DOC_TYPE=Download
-    - ruby (ver >=2.0) 
+    - ruby (ver >=2.0)
     - R (ver >=3.0)
-		- R package 'gplots'     -- is used for heatmap drawing. (for install, try install.packages('gplots') in R terminal)
-    - R package 'phylogram'  -- is used for generation of a newick formatted dendrogram.
-		- R package 'dendextend' -- [optional] This is requried when a phylogenetic tree is NOT given (without "--phy" or "--phy-as-chronogram").
-		- R package 'ape'        -- [optional] This is requried when a phylogenetic tree is given (with "--phy" or "--phy-as-chronogram").
-		- R package 'phangorn'   -- [optional] This is requried when a phylogenetic tree is given (with "--phy" or "--phy-as-chronogram").
+      - R package 'gplots'     -- is used for heatmap drawing. (for install, try install.packages('gplots') in R terminal)
+      - R package 'phylogram'  -- is used for generation of a newick formatted dendrogram.
+      - R package 'dendextend' -- [optional] This is requried when a phylogenetic tree is NOT given (without "--phy" or "--phy-as-chronogram").
+      - R package 'ape'        -- [optional] This is requried when a phylogenetic tree is given (with "--phy" or "--phy-as-chronogram").
+      - R package 'phangorn'   -- [optional] This is requried when a phylogenetic tree is given (with "--phy" or "--phy-as-chronogram").
 
 [1;32m[options][0m
   (general)
@@ -48,7 +48,7 @@ $ $PROGNAME [options] <input fasta> <output dir>
     --overwrite         (default: off)      -- overwrite output directory
 
   (computing)
-		--ncpus       [int] (default: 4)        -- the number of cpus to use
+    --ncpus       [int] (default: 4)        -- the number of cpus to use
 
   (blastp)
     --min-aln-len [int] (default: 40)       -- minimum amino acid length of acceptable HSP
@@ -57,14 +57,14 @@ $ $PROGNAME [options] <input fasta> <output dir>
     --evalue      [num] (default: 0.01)
 
   (similarity measure)
-		--measure     [identity|sim-score]      -- choice of similarity measure for heatmap generation (identity: %identity of blastp, sim-score: not implemented yet).
+    --measure     [identity|sim-score]      -- choice of similarity measure for heatmap generation (identity: %identity of blastp, sim-score: not implemented yet).
 
   (provide a phylogenetic tree used as a dendrogram)
-		--fphy               [str] (default: disabled) -- to provide a phylogenetic tree file (newick or nexus format). The tree is directly converted to a dendrogram of the heatmap.
-		--fphy-as-chronogram [str] (default: disabled) -- to provide a phylogenetic tree file (newick or nexus format). The tree is converted to chronogram and used as a dendrogram of the heatmap.
+    --fphy               [str] (default: disabled) -- to provide a phylogenetic tree file (newick or nexus format). The tree is directly converted to a dendrogram of the heatmap.
+    --fphy-as-chronogram [str] (default: disabled) -- to provide a phylogenetic tree file (newick or nexus format). The tree is converted to chronogram and used as a dendrogram of the heatmap.
 
   (clustering)
-		--clust-method [ALL|average|ward.D|ward.D2|single|complete|mcquitty|median|centroid]  (default: average)   -- method of hclust function in R. 'ALL' performs all methods.
+    --clust-method [ALL|average|ward.D|ward.D2|single|complete|mcquitty|median|centroid]  (default: average)   -- method of hclust function in R. 'ALL' performs all methods.
 
 [1;32m[output files][0m
   (blastp identity mode)
