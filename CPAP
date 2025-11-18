@@ -7,10 +7,10 @@
 ###
 
 PROGNAME=$(basename $0)
-VERSION="0.1.0"
+VERSION="0.2.0"
 Errmsg="[1;31m[error][0m"
 Sccmsg="[1;32m[success][0m"
-Modidate="2024-08-22"
+Modidate="2025-09-25"
 incmd="$0 $*"
 
 
