@@ -1,4 +1,6 @@
 
+STDOUT.sync = true; STDERR.sync = true
+
 Fa1, Boudir, Fmat, min_aln_len, min_idt  = ARGV
 Min_aln_len = min_aln_len.to_i
 Min_idt     = min_idt.to_f
@@ -12,7 +14,7 @@ IO.read(Fa1).split(/^>/)[1..-1].each{ |ent|
 
 ## parse blast output
 mat = Hash.new{ |h, i| h[i] = {} }
-Dir["#{Boudir}/*.blastp.out"].sort_by{ |fin| File.basename(fin).split(".")[0..-2]*"." }.each{ |fin|
+Dir["#{Boudir}/*.blast?.out"].sort_by{ |fin| File.basename(fin).split(".")[0..-2]*"." }.each{ |fin|
   IO.readlines(fin).each{ |l|
     a = l.chomp.split("\t")
     que, sub, idt, aln_len = a.values_at(0, 1, 2, 3)

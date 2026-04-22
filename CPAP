@@ -1,329 +1,386 @@
-#!/bin/bash
+#!/usr/bin/env ruby
 ###
 ### CPAP (Clustering and Phylogenetic Analyzer of Proteins)
 ###
-### Copyright: 2019-2024 (C) Yosuke Nishimura (nishimuray@jamstec.go.jp ; ynishimura@aori.u-tokyo.ac.jp)
+### Copyright: 2019-2025 (C) Yosuke Nishimura (nishimuray@jamstec.go.jp ; ynishimura@aori.u-tokyo.ac.jp)
 ### License: MIT license
-###
 
-PROGNAME=$(basename $0)
-VERSION="0.2.0"
-Errmsg="[1;31m[error][0m"
-Sccmsg="[1;32m[success][0m"
-Modidate="2025-09-25"
-incmd="$0 $*"
+require 'optparse'
+require 'fileutils'
+require 'open3'
 
+###########################
+### entry point of CPAP ###
+###########################
 
-# {{{ usage
-read -r -d '' usage <<EOF
-[1;35m### $PROGNAME ver $VERSION ($Modidate) ###[0m
+# {{{ class CPAP
+class CPAP
+  VERSION  = "0.3.0"
+  MODIDATE = "2025-11-18"
 
-[1;32m[description][0m
-$PROGNAME - Clustering and Phylogenetic Analyzer of Proteins.
-$PROGNAME generates heatmap-based visualization according to BLASTp protein identity.
+  ERRMSG = "\e[1;31m[error]\e[0m"
+  SCCMSG = "\e[1;32m[success]\e[0m"
 
-$PROGNAME first computes sequence identity based on BLASTp results, then converted into an identity matrix and visualizes it by a heatmap and a dendrogram.
+  # {{{ def initialize
+  def initialize
+    @options = {
+      fin: nil,
+      outdir: nil,
+      ncpus: 4,
+      mode: "blastp",
+      dbsize: 100_000_000,
+      matrix: "BLOSUM62",
+      evalue: 0.01,
+      min_aln_len: 40,
+      min_idt: 20,
+      measure: "identity",
+      fphy: nil,
+      fphy_as_chronogram: nil,
+      clust_method: "ALL",
+      overwrite: false,
+      no_heatmap: false
+    }
 
-[1;32m[usage][0m
-$ $PROGNAME [options] <input fasta> <output dir>
+    @progname   = File.basename($0)
+    @progpath   = File.absolute_path($0)
+    @incmd      = "#{$0} #{ARGV.join(' ')}"
+    @stime      = Time.now
+    @stime_str  = @stime.strftime("%Y-%m-%d %H:%M:%S")
+    @script_dir = File.dirname(@progpath)
+  end
+  # }}} def initialize
 
-- <input fasta> should be in a protein FASTA format.
-- <output dir> should not exist.
+  # {{{ def usage
+  def usage
+    <<~EOF
+    \e[1;35m### #{@progname} ver #{VERSION} (#{MODIDATE}) ###\e[0m
 
-[1;32m[dependencies][0m
-    - blastp, makeblastdb  -- are included in the BLAST+ program;
-                              https://blast.ncbi.nlm.nih.gov/Blast.cgi?PAGE_TYPE=BlastDocs&DOC_TYPE=Download
-    - ruby (ver >=2.0)
-    - R (ver >=3.0)
-      - R package 'gplots'     -- is used for heatmap drawing. (for install, try install.packages('gplots') in R terminal)
-      - R package 'phylogram'  -- is used for generation of a newick formatted dendrogram.
-      - R package 'dendextend' -- [optional] This is requried when a phylogenetic tree is NOT given (without "--phy" or "--phy-as-chronogram").
-      - R package 'ape'        -- [optional] This is requried when a phylogenetic tree is given (with "--phy" or "--phy-as-chronogram").
-      - R package 'phangorn'   -- [optional] This is requried when a phylogenetic tree is given (with "--phy" or "--phy-as-chronogram").
+    \e[1;32m[description]\e[0m
+    #{@progname} - Clustering and Phylogenetic Analyzer of Proteins/Nucleotides.
+    #{@progname} generates heatmap-based visualization according to ...
+      - protein similarity/%-identity using blastp/diamond/mmseqs
+      - nucleotide similarity/%-identity using blastn
 
-[1;32m[options][0m
-  (general)
-    -h, --help
-    -v, --version
-    --overwrite         (default: off)      -- overwrite output directory
+    #{@progname} first computes sequence identity based on BLASTp results, then converted into an identity matrix and visualizes it by a heatmap and a dendrogram.
 
-  (computing)
-    --ncpus       [int] (default: 4)        -- the number of cpus to use
+    \e[1;32m[usage]\e[0m
+    $ #{@progname} [options] <input fasta> <output dir>
 
-  (blastp)
-    --min-aln-len [int] (default: 40)       -- minimum amino acid length of acceptable HSP
-    --min-idt     [int] (default: 20)       -- %-identity of acceptable HSP
-    --dbsize      [int] (default: 100000000)
-    --matrix      [str] (default: BLOSUM62)
-    --evalue      [num] (default: 0.01)
+    - <input fasta> should be in FASTA format.
+    - <output dir> should not exist.
 
-  (similarity measure)
-    --measure     [identity|sim-score]      -- choice of similarity measure for heatmap generation (identity: %identity of blastp, sim-score: not implemented yet).
+    \e[1;32m[dependencies]\e[0m
+        - BLAST+
+        - diamond
+        - mmseqs2
+        - ruby (ver >=2.0)
+        - R (ver >=3.0)
+          - R package 'gplots'     -- is used for heatmap drawing. (for install, try install.packages('gplots') in R terminal)
+          - R package 'phylogram'  -- is used for generation of a newick formatted dendrogram.
+          - R package 'dendextend' -- [optional] This is requried when a phylogenetic tree is NOT given (without "--phy" or "--phy-as-chronogram").
+          - R package 'ape'        -- [optional] This is requried when a phylogenetic tree is given (with "--phy" or "--phy-as-chronogram").
+          - R package 'phangorn'   -- [optional] This is requried when a phylogenetic tree is given (with "--phy" or "--phy-as-chronogram").
 
-  (provide a phylogenetic tree used as a dendrogram)
-    --fphy               [str] (default: disabled) -- to provide a phylogenetic tree file (newick or nexus format). The tree is directly converted to a dendrogram of the heatmap.
-    --fphy-as-chronogram [str] (default: disabled) -- to provide a phylogenetic tree file (newick or nexus format). The tree is converted to chronogram and used as a dendrogram of the heatmap.
+    \e[1;32m[options]\e[0m
+      (general)
+        -h, --help
+        -v, --version
+        --overwrite   (default: off) -- overwrite output directory
+        --no-heatmap  (default: off) -- skip heatmap/dendrogram steps and stop after identity/similarity matrix generation
+        --mode   [blastp|diamond|mmseqs|blastn] (default: blastp) -- choose blastp/diamond/mmseqs (for protein) or blastn (for nucleotide) for similarity search, currently only blastp/blastn is implemented.
 
-  (clustering)
-    --clust-method [ALL|average|ward.D|ward.D2|single|complete|mcquitty|median|centroid]  (default: average)   -- method of hclust function in R. 'ALL' performs all methods.
+      (similarity measure)
+        --measure     [identity|sim-score] (default: identity) -- choice of similarity measure for heatmap generation (identity: %identity of blastp, sim-score: normalized score like Sg used in ViPTree).
 
-[1;32m[output files][0m
-  (blastp identity mode)
-    result/idt.tsv                        -- blastp %identity matrix
-    result/idt-heat.<clust-method>.pdf    -- heatmap pdf file
-    result/idt.ordered.<clust-method>.tsv -- blastp %identity matrix, sorted in the same order of the dendrogram.
-EOF
-# }}} usage
+      (computing)
+        --ncpus       [int] (default: 4)        -- the number of cpus to use
 
+      (blastp)
+        --min-aln-len [int] (default: 20)       -- minimum amino acid length of acceptable HSP
+        --min-idt     [int] (default: 20)       -- %-identity of acceptable HSP
+        --dbsize      [int] (default: 100000000)
+        --matrix      [str] (default: BLOSUM62)
+        --evalue      [num] (default: 0.01)
 
-# {{{ parse command line
-for OPT in "$@"
-do
-	case "$OPT" in
-		'-h'|'--help' )
-			echo "$usage"
-			exit 1
-			;;
-		'-v'|'--version' )
-			echo $VERSION
-			exit 0
-			;;
-		'--min-aln-len' )
-			if [[ -z "$2" ]] || [[ "$2" =~ ^-+ ]] ; then
-				echo "$Errmsg option requires an argument -- $1" 1>&2
-				exit 1
-			fi
-			min_aln_len="$2"
-			shift 2
-			;;
-		'--min-idt' )
-			if [[ -z "$2" ]] || [[ "$2" =~ ^-+ ]] ; then
-				echo "$Errmsg option requires an argument -- $1" 1>&2
-				exit 1
-			fi
-			min_idt="$2"
-			shift 2
-			;;
-		'--dbsize' )
-			if [[ -z "$2" ]] || [[ "$2" =~ ^-+ ]] ; then
-				echo "$Errmsg option requires an argument -- $1" 1>&2
-				exit 1
-			fi
-			dbsize="$2"
-			shift 2
-			;;
-		'--matrix' )
-			if [[ -z "$2" ]] || [[ "$2" =~ ^-+ ]] ; then
-				echo "$Errmsg option requires an argument -- $1" 1>&2
-				exit 1
-			fi
-			matrix="$2"
-			shift 2
-			;;
-		'--evalue' )
-			if [[ -z "$2" ]] || [[ "$2" =~ ^-+ ]] ; then
-				echo "$Errmsg option requires an argument -- $1" 1>&2
-				exit 1
-			fi
-			evalue="$2"
-			shift 2
-			;;
-		'--measure' )
-			if [[ -z "$2" ]] || [[ "$2" =~ ^-+ ]] ; then
-				echo "$Errmsg option requires an argument -- $1" 1>&2
-				exit 1
-			fi
-			measure="$2"
-			shift 2
-			;;
-		'--fphy' )
-			if [[ -z "$2" ]] || [[ "$2" =~ ^-+ ]] ; then
-				echo "$Errmsg option requires an argument -- $1" 1>&2
-				exit 1
-			fi
-			fphy="$2"
-			shift 2
-			;;
-		'--fphy-as-chronogram' )
-			if [[ -z "$2" ]] || [[ "$2" =~ ^-+ ]] ; then
-				echo "$Errmsg option requires an argument -- $1" 1>&2
-				exit 1
-			fi
-			fphy_as_chronogram="$2"
-			shift 2
-			;;
-		'--clust-method' )
-			if [[ -z "$2" ]] || [[ "$2" =~ ^-+ ]] ; then
-				echo "$Errmsg option requires an argument -- $1" 1>&2
-				exit 1
-			fi
-			clust_method="$2"
-			shift 2
-			;;
-		'--ncpus' )
-			if [[ -z "$2" ]] || [[ "$2" =~ ^-+ ]] ; then
-				echo "$Errmsg option requires an argument -- $1" 1>&2
-				exit 1
-			fi
-			ncpus="$2"
-			shift 2
-			;;
-		'--overwrite' )
-			overwrite=true
-			shift 1
-			;;
-		'--'|'-' )
-			shift 1
-			params+=( "$@" )
-			break
-			;;
-		-*)
-			echo "$Errmsg illegal option -- '$(echo $1 | sed 's/^-*//')'" 1>&2
-			exit 1
-			;;
-		*)
-			if [[ ! -z "$1" ]] && [[ ! "$1" =~ ^-+ ]] ; then
-				#params=( ${params[@]} "$1" )
-				params+=( "$1" )
-				shift 1
-			fi
-			;;
-	esac
-done
-if [ -z $params ] ; then
-	echo "$Errmsg need 2 arguments" 1>&2
-	echo 
-	echo "$usage" 1>&2
-	exit 1
-elif [ ${#params[@]} -lt 2 ] ; then
-	echo "$Errmsg need 2 arguments" 1>&2
-	exit 1
-elif ! [ -f "${params[0]}" ] ; then
-	echo "$Errmsg first argument should be a protein fasta file." 1>&2
-	exit 1
-elif [ -e "${params[1]}" ] && [ -z "$overwrite" ] ; then
-	echo "$Errmsg output directory '${params[1]}' already exists. Use --overwrite to overwrite it. " 1>&2
-	exit 1
-elif [ -n "$fphy" ] && [ -n "$fphy_as_chronogram" ] ; then
-	echo "$Errmsg --fphy and --fphy-as-chronogram can not be given at the same time." 1>&2
-	exit 1
-fi
-# }}} parse command line
+      (blastn)
+        --min-aln-len [int] (default: 60)       -- minimum nucleotide length of acceptable HSP
+        --min-idt     [int] (default: 60)       -- %-identity of acceptable HSP
+        --dbsize      [int] (default: 100000000)
+        --evalue      [num] (default: 0.01)
 
+      (provide a phylogenetic tree used as a dendrogram)
+        --fphy               [str] (default: disabled) -- to provide a phylogenetic tree file (newick or nexus format). The tree is directly converted to a dendrogram of the heatmap.
+        --fphy-as-chronogram [str] (default: disabled) -- to provide a phylogenetic tree file (newick or nexus format). The tree is converted to chronogram and used as a dendrogram of the heatmap.
 
-# {{{ check dependencies
-### check availablity of tblastx
-command -v blastp >/dev/null 2>&1 || { echo >&2 "$Errmsg blastp (in BLAST+ package) is required but not available.  Aborting."; exit 1; }
-command -v makeblastdb >/dev/null 2>&1 || { echo >&2 "$Errmsg makeblastdb (in BLAST+ package) is required but not available.  Aborting."; exit 1; }
+      (clustering)
+        --clust-method [ALL|average|ward.D|ward.D2|single|complete|mcquitty|median|centroid]  (default: ALL)   -- method of hclust function in R. 'ALL' performs all methods.
 
-### check availablity of R
-command -v R >/dev/null 2>&1 || \
-	{ echo >&2 "$Errmsg R is required but not available. Aborting."; exit 1; }
-# LANG=C R --quiet --no-save --no-restore -e "library('gplots')" >/dev/null 2>&1 || \
-# 	{ echo >&2 "$Errmsg R package 'gplots' must be installed but not available. Aborting."; exit 1; }
-# LANG=C R --quiet --no-save --no-restore -e "library('phylogram')" >/dev/null 2>&1 || \
-# 	{ echo >&2 "$Errmsg R package 'phylogram' must be installed but not available. Aborting."; exit 1; }
+    \e[1;32m[output files]\e[0m
+      (blastp identity mode)
+        result/idt.tsv                        -- blastp %identity matrix
+        result/idt-heat.<clust-method>.pdf    -- heatmap pdf file
+        result/idt.ordered.<clust-method>.tsv -- blastp %identity matrix, sorted in the same order of the dendrogram.
+    EOF
+  end
+  # }}} def usage
 
-### for optional R packages to generate dendrogram
-# if [ -n $fphy ] || [ -n $fphy_as_chronogram ]; then
-# 	LANG=C R --quiet --no-save --no-restore -e "library('ape')" >/dev/null 2>&1 || \
-# 		{ echo >&2 "$Errmsg R package 'ape' must be installed but not available. Aborting."; exit 1; }
-# 	LANG=C R --quiet --no-save --no-restore -e "library('phangorn')" >/dev/null 2>&1 || \
-# 		{ echo >&2 "$Errmsg R package 'phangorn' must be installed but not available. Aborting."; exit 1; }
-# else
-# 	LANG=C R --quiet --no-save --no-restore -e "library('dendextend')" >/dev/null 2>&1 || \
-# 		{ echo >&2 "$Errmsg R package 'dendextend' must be installed but not available. Aborting."; exit 1; }
-# fi
+  # {{{ def parse_options
+  def parse_options
+    min_aln_len_set = false
+    min_idt_set     = false
 
-### check ruby version
-ST=`ruby -e 'print RUBY_VERSION.to_f >= 2.0 ? 0 : 1'`
-if [ $ST -ne 0 ]; then 
-	echo >&2 "$Errmsg ruby (version >=2.0) is required.  Aborting."; exit 1;
-fi
-# }}} check dependencies
+    parser = OptionParser.new do |opts|
+      opts.banner = usage
 
+      opts.on("--mode MODE", String, "choose blastp/diamond/mmseqs (for protein) or blastn (for nucleotide) for similarity search, currently onlyblastp/blastn is implemented") do |v|
+        @options[:mode] = v
+        case v
+        when "blastp", "diamond", "mmseqs", "blastn"
+          ## do nothing
+        else
+          warn "#{ERRMSG} --mode should be 'blastp', 'diamond', 'mmseqs', or 'blastn'."
+          exit 1
+        end
+      end
 
-# {{{ assign variables 
-### parse args
-fin="${params[0]}"
-dir="${params[1]}"
+      opts.on("--min-aln-len INT", Integer, "Minimum length of acceptable HSP") do |v|
+        @options[:min_aln_len] = v
+        min_aln_len_set = true
+      end
 
-### param for split length for fast up
-ncpus="${ncpus:-4}"
+      opts.on("--min-idt INT", Integer, "%-identity of acceptable HSP") do |v|
+        @options[:min_idt] = v
+        min_idt_set = true
+      end
 
-### blastp params
-dbsize="${dbsize:-100000000}"
-matrix="${matrix:-BLOSUM62}"
-evalue="${evalue:-0.01}"
-min_aln_len="${min_aln_len:-40}"
-min_idt="${min_idt:-20}"
+      opts.on("--dbsize INT", Integer, "blastp dbsize") do |v|
+        @options[:dbsize] = v
+      end
 
-### similarity measure
-measure="${measure:-identity}"
+      opts.on("--matrix MATRIX", String, "Substitution matrix") do |v|
+        @options[:matrix] = v
+      end
 
-### fphy
-fphy="${fphy:-}"
+      opts.on("--evalue NUM", Float, "blastp evalue") do |v|
+        @options[:evalue] = v
+      end
 
-### clustering method
-clust_method="${clust_method:-average}"
+      opts.on("--measure MEASURE", String, "measure for similarity matrix and heatmap generation") do |v|
+        @options[:measure] = v
+      end
 
-### rakefile/logdir
-pushd `dirname $0` > /dev/null
-scrdir=`pwd -P`
-popd > /dev/null
-jobname=`basename $0`
-rakefile=$scrdir/$jobname.rake
-logdir=$dir/log
-# }}} assign variables 
+      opts.on("--fphy PATH", String, "Phylogenetic tree file (newick or nexus)") do |v|
+        @options[:fphy] = v
+      end
 
+      opts.on("--fphy-as-chronogram PATH", String, "Phylogenetic tree file converted to chronogram") do |v|
+        @options[:fphy_as_chronogram] = v
+      end
 
-# {{{ after run function
-function after_run(){
-  endTime=$(LC_ALL=C date +"%Y-%m-%d %H:%M:%S %z")
+      opts.on("--clust-method METHOD", String, "hclust method used in R") do |v|
+        @options[:clust_method] = v
+      end
 
-  if [[ $1 -gt 0 ]] ; then
-    echo "$Errmsg run failed: $endTime" > "$logdir/$startTime.$jobname.error"
-    echo "$Errmsg process is killed: $endTime" |tee -a "$logdir/$jobname.log"
-    exit 1
-  else
-    echo "$Sccmsg run finished: $endTime" > "$logdir/$startTime.$jobname.success"
-  fi
-}
-### }}} after run function
+      opts.on("--ncpus INT", Integer, "Number of cpus to use") do |v|
+        @options[:ncpus] = v
+      end
 
+      opts.on("--overwrite", "Overwrite output directory") do
+        @options[:overwrite] = true
+      end
 
-# {{{ input command
-read -r -d '' incmdlog <<EOF
+      opts.on("--no-heatmap", "Run only BLAST identity matrix steps (skip heatmap)") do
+        @options[:no_heatmap] = true
+      end
 
-[1;32m===== command line[0m
+      opts.on("-h", "--help", "Show this message") do
+        puts usage
+        exit 0
+      end
 
-$ $incmd
+      opts.on("-v", "--version", "Show version") do
+        puts VERSION
+        exit 0
+      end
+    end
 
-[1;32m===== log file[0m
+    remaining = parser.parse!(ARGV)
 
-$logdir/$jobname.log
+    case @options[:mode]
+    when "blastn"
+      @options[:min_aln_len] = min_aln_len_set ? @options[:min_aln_len] : 60
+      @options[:min_idt]     = min_idt_set     ? @options[:min_idt]     : 60
+    else
+      @options[:min_aln_len] = min_aln_len_set ? @options[:min_aln_len] : 20
+      @options[:min_idt]     = min_idt_set     ? @options[:min_idt]     : 20
+    end
 
-[1;32m===== check version: $PROGNAME[0m
+    if remaining.length < 2
+      warn "#{ERRMSG} need 2 arguments"
+      warn
+      warn usage
+      exit 1
+    end
 
-$VERSION
+    @options[:fin]    = remaining.shift
+    @options[:outdir] = remaining.shift
+  end
+  # }}} def parse_options
 
-EOF
-# }}} input command
+  # {{{ def validate_options
+  def validate_options
+    unless File.file?(@options[:fin])
+      warn "#{ERRMSG} first argument should be a protein fasta file."
+      exit 1
+    end
 
+    if File.exist?(@options[:outdir]) && !@options[:overwrite]
+      warn "#{ERRMSG} output directory '#{@options[:outdir]}' already exists. Use --overwrite to overwrite it."
+      exit 1
+    end
 
-### main
-mkdir -p $logdir
-startTime=$(LC_ALL=C date +"%Y-%m-%d %H:%M:%S")
+    if @options[:fphy] && @options[:fphy_as_chronogram]
+      warn "#{ERRMSG} --fphy and --fphy-as-chronogram can not be given at the same time."
+      exit 1
+    end
+  end
+  # }}} def validate_options
 
-## write input command
-echo "$incmdlog" |tee -a $logdir/$jobname.log
+  # {{{ def check_dependencies
+  def check_dependencies
+    %w[blastp makeblastdb].each do |cmd|
+      next if command_available?(cmd)
+      warn "#{ERRMSG} #{cmd} (in BLAST+ package) is required but not available. Aborting."
+      exit 1
+    end
 
-## trap Ctrl-C etc...
-trap 'after_run 1' 1 2 3 9 15
+    unless @options[:no_heatmap]
+      unless command_available?("R")
+        warn "#{ERRMSG} R is required but not available. Aborting."
+        exit 1
+      end
+    end
 
-## run
-rake -f $rakefile dir="$dir" fin="$fin" min_aln_len="$min_aln_len" min_idt="$min_idt" dbsize="$dbsize" matrix="$matrix" evalue="$evalue" \
-	measure="$measure" clust_method="$clust_method" fphy="$fphy" fphy_as_chronogram="$fphy_as_chronogram" ncpus="$ncpus" 2>&1 |tee -a $logdir/$jobname.log
-st=$(( ${PIPESTATUS[0]} + ${PIPESTATUS[1]} ))
-after_run $st
+    if RUBY_VERSION.to_f < 2.0
+      warn "#{ERRMSG} ruby (version >=2.0) is required. Aborting."
+      exit 1
+    end
+  end
+  # }}} def check_dependencies
 
+  # {{{ def setup_logging
+  def setup_logging
+    @logdir  = File.join(@options[:outdir], "log")
+    @logfile = File.join(@logdir, "#{@progname}.log")
+
+    FileUtils.mkdir_p(@logdir)
+
+    log_header = <<~EOF
+
+    \e[1;32m===== command line\e[0m
+
+    $ #{@incmd}
+
+    \e[1;32m===== log file\e[0m
+
+    #{@logfile}
+
+    \e[1;32m===== check version: #{@progname}\e[0m
+
+    #{VERSION}
+
+    EOF
+
+    File.open(@logfile, "w") { |f| f.puts log_header }
+    puts log_header
+  end
+  # }}} def setup_logging
+
+  # {{{ def run_rake
+  def run_rake
+    rakefile = File.join(@script_dir, "#{@progname}.rake")
+
+    env_vars = {
+      "dir"                  => @options[:outdir],
+      "fin"                  => @options[:fin],
+      "mode"                 => @options[:mode],
+      "min_aln_len"          => @options[:min_aln_len].to_s,
+      "min_idt"              => @options[:min_idt].to_s,
+      "dbsize"               => @options[:dbsize].to_s,
+      "matrix"               => @options[:matrix].to_s,
+      "evalue"               => @options[:evalue].to_s,
+      "measure"              => @options[:measure].to_s,
+      "clust_method"         => @options[:clust_method].to_s,
+      "fphy"                 => @options[:fphy].to_s,
+      "fphy_as_chronogram"   => @options[:fphy_as_chronogram].to_s,
+      "ncpus"                => @options[:ncpus].to_s,
+      "no_heatmap"           => @options[:no_heatmap] ? "true" : ""
+    }
+
+    env_vars.each { |k, v| ENV[k] = v }
+
+      ### [use] Open3.popen3 to capture stdout/stderr line by line
+      require 'open3'
+    status = nil
+    begin
+      open(@logfile, "a") do |fw|
+        fw.sync = true
+        Open3.popen3("rake -f #{rakefile} 2>&1") do |stdin, stdout, _, wait_thr|
+          stdin.close
+          stdout.each_line do |line|
+            fw.puts line
+            $stdout.print line
+          end
+          status = wait_thr.value.exitstatus
+        end
+      end
+
+      etime     = Time.now
+      etime_str = etime.strftime("%Y-%m-%d %H:%M:%S %z")
+
+      if status == 0
+        sfile = File.join(@logdir, "#{@stime_str}.#{@progname}.success")
+        smsg  = "#{SCCMSG} run finished: #{etime_str}. elapsed time: #{etime - @stime} seconds."
+        File.write(sfile, smsg)
+        $stderr.puts smsg
+      else
+        efile = File.join(@logdir, "#{@stime_str}.#{@progname}.error")
+        emsg  = "#{ERRMSG} run aborted: #{etime_str}. elapsed time: #{etime - @stime} seconds."
+        File.write(efile, emsg)
+        $stderr.puts emsg
+        exit 1
+      end
+    rescue Interrupt
+      etime     = Time.now
+      etime_str = etime.strftime("%Y-%m-%d %H:%M:%S %z")
+
+      efile = File.join(@logdir, "#{@stime_str}.#{@progname}.error")
+      emsg  = "#{ERRMSG} run interrupted: #{etime_str}. elapsed time: #{etime - @stime} seconds."
+      File.write(efile, emsg)
+      $stderr.puts emsg
+      exit 1
+    end
+  end
+  # }}} def run_rake
+
+  # {{{ def run
+  def run
+    parse_options
+    validate_options
+    check_dependencies
+    setup_logging
+    run_rake
+  end
+  # }}} def run
+
+  private
+
+  def command_available?(cmd)
+    system("command -v #{cmd} >/dev/null 2>&1")
+  end
+end
+# }}} class CPAP
+
+if __FILE__ == $0
+  CPAP.new.run
+end

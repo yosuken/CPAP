@@ -1,4 +1,6 @@
 
+STDOUT.sync = true; STDERR.sync = true
+
 Fmat, Fdnd, FmatR = ARGV
 
 ## parse dendrogram

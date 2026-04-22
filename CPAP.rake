@@ -5,6 +5,7 @@
 ### License: MIT license
 ###
 
+STDOUT.sync = true; STDERR.sync = true
 
 # {{{ procedures
 WriteBatch = lambda do |t, jobdir, outs|
@@ -51,6 +52,8 @@ CheckVersion = lambda do |commands|
       %|makeblastdb -version 2>&1|
     when "blastp"
       %|blastp -version 2>&1|
+    when "blastn"
+      %|blastn -version 2>&1|
     when "R"
       %|LANG=C R --version 2>&1|
     when "gplots"
@@ -95,19 +98,22 @@ task :default do
     Fphy  = ""
   end
   Use_chrono = ENV["fphy_as_chronogram"] != "" ? true : false  ## flag if to use chronogram
+  No_heatmap = ENV["no_heatmap"].to_s == "true"              ## skip heatmap/dendrogram
 
   ## file path to be generated
   Jobdir     = "#{Odir}/batch"
   Logdir     = "#{Odir}/log/tasks"
   Bdbdir     = "#{Odir}/blastdb"      ## dir for blastdb
-  Boudir     = "#{Odir}/blastp"       ## dir for blast output
+  Boudir     = "#{Odir}/blast"        ## dir for blast output
   Resdir     = "#{Odir}/result"       ## dir for result
   Spldir     = "#{Odir}/input_split"  ## dir for input_split
-  Fa1        = "#{Odir}/input.faa"    ## copy of Fin
-  Fa2        = "#{Bdbdir}/input.faa"  ## copy of Fin (as symlink of Fa1)
+  Fa1        = "#{Odir}/input.fa"     ## copy of Fin
+  Fa2        = "#{Bdbdir}/input.fa"   ## copy of Fin (as symlink of Fa1)
 
-  ## measure
-  Measure    = ENV["measure"]               
+  ## mode / measure
+  Mode       = ENV["mode"]            ## default: blastp
+  Measure    = ENV["measure"]
+
   case Measure
   when "identity"  ## %identity of (default)
     lab      = "idt"
@@ -117,9 +123,8 @@ task :default do
     FmatR    = "#{Resdir}/#{lab}.ordered" ## identity matrix in the order of the dendrogram
 
     ## tasks
-    tasks    = %w|01-1.makeblastdb 01-2.blastp 01-3a.idt_matrix 01-4.heatmap 01-5.reordered_idt_matrix|
+    tasks    = %w|01-1.makeblastdb 01-2.blast 01-3a.idt_matrix|
   when "sim-score" ## use Sg like similarity score
-    ### [TODO] implement calculation of sim-score
     lab      = "sim"
     Fmat     = "#{Resdir}/#{lab}.tsv"     ## identity matrix
     Fpdf     = "#{Resdir}/#{lab}-heat"    ## heatmap pdf
@@ -127,10 +132,14 @@ task :default do
     FmatR    = "#{Resdir}/#{lab}.ordered" ## identity matrix in the order of the dendrogram
 
     ## tasks
-    tasks    = %w|01-1.makeblastdb 01-2.blastp 01-3b.sim_matrix 01-4.heatmap 01-5.reordered_idt_matrix|
-    # tasks    = %w|01-3b.sim_matrix|
+    tasks    = %w|01-1.makeblastdb 01-2.blast 01-3b.sim_matrix|
   else ## not defined
     raise("`--measure #{Measure}': does not defined")
+  end
+
+  ### add heatmap tasks
+  unless No_heatmap
+    tasks += %w|01-4.heatmap 01-5.reordered_idt_matrix|
   end
 
 
@@ -145,7 +154,7 @@ task :default do
   Min_idt         = ENV["min_idt"]      ## default: 20
   Max_target_seqs = 1_000_000
   # hclust clustering
-  Clust_method    = ENV["clust_method"] ## default: average (option: ward.D2, ...)
+  Clust_method    = ENV["clust_method"] ## default: ALL (option: ward.D2, ...)
   Clust_methods   = %w|average ward.D ward.D2 single complete mcquitty median centroid|
 
   unless (Clust_methods + %w|ALL|).include?(Clust_method)
@@ -153,13 +162,26 @@ task :default do
   end
 
   ### check version
-  commands = %w|blastp makeblastdb R dendextend gplots ruby|
+  commands = %w|ruby makeblastdb|
+  commands << (
+    case Mode
+    when "blastn" then "blastn"
+    when "blastp" then "blastp"
+    else
+      raise("`--mode #{Mode}': does not implemented")
+    end
+  )
+
+  unless No_heatmap
+    commands += %w|R dendextend gplots|
+  end
   CheckVersion.call(commands)
 
   ### run
   NumStep = tasks.size
   tasks.each.with_index(1){ |task, idx|
     Rake::Task[task].invoke(idx)
+    STDOUT.flush
   }
 end
 # }}}
@@ -169,41 +191,61 @@ end
 desc "01-1.makeblastdb"
 task "01-1.makeblastdb", ["step"] do |t, args|
   PrintStatus.call(args.step, NumStep, "START", t)
+  log  = "#{Bdbdir}/makeblastdb.log"
+  done = "#{Bdbdir}/makeblastdb.done"
+  (puts "Already done. Skipped." ; next) if File.exist?(done) ### skip if already done
+
   mkdir_p Odir
   mkdir_p Bdbdir
-  log  = "#{Bdbdir}/makeblastdb.log"
+
+  ### dbtype
+  dbtype = case Mode
+  when "blastp"
+    "prot"
+  when "blastn"
+    "nucl"
+  else
+    raise("`--mode #{Mode}': does not implemented")
+  end
 
   sh "cp #{Fin} #{Fa1}" unless File.exist?(Fa1)  ## copy input fasta to output dir
   sh "pushd #{Bdbdir} ; ln -s ../#{File.basename(Fa1)} ; popd" unless File.exist?(Fa2)
-  sh "pushd #{Bdbdir} ; makeblastdb -dbtype prot -in #{File.basename(Fa2)} -out #{File.basename(Fa2)} 2>#{File.basename(log)} ; popd" unless File.exist?(log)
+  sh "pushd #{Bdbdir} ; makeblastdb -dbtype #{dbtype} -in #{File.basename(Fa2)} -out #{File.basename(Fa2)} 2>#{File.basename(log)} ; popd" unless File.exist?(log)
 
   ### split input fasta (one file for one seq)
   sh "mkdir -p #{Spldir}" unless File.directory?(Spldir)
   IO.read(Fa1).split(/^>/)[1..-1].each{ |ent|
     lab, *_seq = ent.split("\n")
     gid = lab.split(/\s+/)[0]
-    fou = "#{Spldir}/#{gid}.faa"
+    fou = "#{Spldir}/#{gid}.fa"
     open(fou, "w"){ |fw| fw.puts ">#{ent}" } unless File.exist?(fou)
   }
+  sh "touch #{done}" unless File.exist?(done)
 end
 # }}}
 
 
-# {{{ "01-2.blastp"
-desc "01-2.blastp"
-task "01-2.blastp", ["step"] do |t, args|
+# {{{ "01-2.blast"
+desc "01-2.blast"
+task "01-2.blast", ["step"] do |t, args|
   PrintStatus.call(args.step, NumStep, "START", t)
+  (puts "Already done. Skipped." ; next) if File.exist?("#{Logdir}/#{t.name.split(":")[-1]}/exit") ### skip if already done
   outs   = []
 
   mkdir_p Boudir
-  outfmt = '-outfmt "6 std qlen slen"' ### equal to '-outfmt "6 qseqid sseqid pident length mismatch gapopen qstart qend sstart send evalue bitscore qlen slen"'
+  outfmt = '"6 std qlen slen"' ### equal to '-outfmt "6 qseqid sseqid pident length mismatch gapopen qstart qend sstart send evalue bitscore qlen slen"'
 
-  Dir["#{Spldir}/*.faa"].sort_by{ |fin| File.basename(fin).split(".")[0..-2]*"." }.each{ |fin|
+  command = case Mode
+  when "blastp" then "blastp -matrix #{Matrix} -num_threads 1 -evalue #{Evalue} -dbsize #{DBsize} -max_target_seqs #{Max_target_seqs} -db #{Fa2} -outfmt #{outfmt}"
+  when "blastn" then "blastn                   -num_threads 1 -evalue #{Evalue} -dbsize #{DBsize} -max_target_seqs #{Max_target_seqs} -db #{Fa2} -outfmt #{outfmt}"
+  end
+
+  Dir["#{Spldir}/*.fa"].sort_by{ |fin| File.basename(fin).split(".")[0..-2]*"." }.each{ |fin|
     gid  = File.basename(fin).split(".")[0..-2]*"."
-    bout = "#{Boudir}/#{gid}.blastp.out"
-    blog = "#{Boudir}/#{gid}.blastp.log"
+    bout = "#{Boudir}/#{gid}.#{Mode}.out"
+    blog = "#{Boudir}/#{gid}.#{Mode}.log"
 
-    outs << "blastp -num_threads 1 -matrix #{Matrix} -evalue #{Evalue} -dbsize #{DBsize} -max_target_seqs #{Max_target_seqs} -db #{Fa2} -query #{fin} -out #{bout} #{outfmt} 2>#{blog}" unless File.exist?(blog)
+    outs << "#{command} -query #{fin} -out #{bout} 2>#{blog}" unless File.exist?(blog)
   }
 
   WriteBatch.call(t, Jobdir, outs)
@@ -216,6 +258,8 @@ end
 desc "01-3a.idt_matrix"
 task "01-3a.idt_matrix", ["step"] do |t, args|
   PrintStatus.call(args.step, NumStep, "START", t)
+  (puts "Already done. Skipped." ; next) if File.exist?(Fmat) ### skip if already done
+
   mkdir_p Resdir unless File.directory?(Resdir)
   script = "#{File.dirname(__FILE__)}/script/#{t.name}.rb"
 
@@ -228,6 +272,8 @@ end
 desc "01-3b.sim_matrix"
 task "01-3b.sim_matrix", ["step"] do |t, args|
   PrintStatus.call(args.step, NumStep, "START", t)
+  (puts "Already done. Skipped." ; next) if File.exist?(Fmat) ### skip if already done
+
   mkdir_p Resdir unless File.directory?(Resdir)
   script = "#{File.dirname(__FILE__)}/script/#{t.name}.rb"
 
@@ -240,6 +286,8 @@ end
 desc "01-4.heatmap"
 task "01-4.heatmap", ["step"] do |t, args|
   PrintStatus.call(args.step, NumStep, "START", t)
+  (puts "Already done. Skipped." ; next) if File.exist?(Fdnd) ### skip if already done
+
   script = "#{File.dirname(__FILE__)}/script/#{t.name}.R"
 
   case Clust_method

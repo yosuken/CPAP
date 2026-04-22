@@ -1,4 +1,6 @@
 
+STDOUT.sync = true; STDERR.sync = true
+
 require 'parallel'
 
 Fa1, Boudir, Fmat, min_aln_len, min_idt, ncpus  = ARGV
@@ -18,20 +20,24 @@ IO.read(Fa1).split(/^>/)[1..-1].each.with_index{ |ent, idx|
 }
 
 ## parse blast output
-fins = Dir["#{Boudir}/*.blastp.out"].sort_by{ |fin| File.basename(fin).split(".")[0..-2]*"." }
+fins = Dir["#{Boudir}/*.blast?.out"].sort_by{ |fin| File.basename(fin).split(".")[0..-2]*"." } ## e.g: NZ_CP083404.1.blastn.out
 
-### [!!!] blastp output should be split by query
-mat = Parallel.map(fins, in_processes: Ncpus, progress: "parse blastp outputs"){ |fin|
-  hit = Hash.new{ |h, i| h[i] = [] }
-  _que = ""
-  out = Array.new(labs.size) ### score array for each query, sized number of queries
+## [!!!] no blast hit handling for each fin (e.g: NZ_CP083404.1.blastn.out)
+## This is possible when input sequence is fully covered by low-complexity regions.
+## Currently, even in such case, self-similarity (diagonal) is set to 1 later.
+
+### [!!!] blast output should be split by query
+mat = Parallel.map(fins, in_processes: Ncpus, progress: "parse blast outputs"){ |fin|
+  hit  = Hash.new{ |h, i| h[i] = [] }
+  _que = File.basename(fin)[/^(\S+)\.blast.\.out$/, 1]
+  out  = Array.new(labs.size) ### score array for each query, sized number of queries
 
   IO.readlines(fin).each{ |l|
     a = l.chomp.split("\t")
     que, sub, idt, aln_len  = a.values_at(0, 1, 2, 3)
 
-    raise("blastp output should be split by query") if que != _que and _que != ""
-    _que = que
+    raise("blast output should be split by query") if que != _que
+    # _que = que
 
     next if aln_len.to_i < Min_aln_len
     next if idt.to_f < Min_idt
@@ -44,10 +50,11 @@ mat = Parallel.map(fins, in_processes: Ncpus, progress: "parse blastp outputs"){
 
     as.each{ |a|
       # qseqid sseqid pident length mismatch gapopen qstart qend sstart send evalue bitscore
-      score, qst, qen    = a.values_at(11, 6, 7).map(&:to_i)
+      score = a[11].to_f
+      qst, qen = a.values_at(6, 7).map(&:to_i)
       qlen = qen - qst + 1
 
-      new_scr = score.to_f / qlen.to_i ### score per query position
+      new_scr = score / qlen.to_i ### score per query position
 
       (qst..qen).each{ |i|
         pos2score[i] = [pos2score[i], new_scr].max
@@ -75,14 +82,15 @@ scr = []
 mat.each{ |out, _idx|
   scr[_idx] = out
 }
-p scr.size
+
+# p scr.size
 (0...labs.size).each{ |i|
   begin
-  p scr[i].size
+  # p scr[i].size
   rescue
-    p "error at #{i}"
-    p scr[i]
-    p labs[i]
+    # p "error at #{i}"
+    # p scr[i]
+    # p labs[i]
   raise
   end
 }
@@ -114,6 +122,12 @@ labs.size.times do sim << Array.new(labs.size) end
     else
       v = "0"
     end
+
+    ### sometimes, v is a bit bigger than 1
+    if v.to_f > 1.0
+      v = "1"
+    end
+
     sim[i][j] = v
     sim[j][i] = v
   }
