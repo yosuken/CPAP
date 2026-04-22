@@ -1,3 +1,5 @@
-micromamba create -n CPAP_v0.3.0 -c conda-forge -c bioconda r-base=4.4.3 r-gplots r-phylogram r-phangorn r-ape r-dendextend ruby=3.4.5 blast=2.17.0 diamond=2.1.16 mmseqs2=17.b804f
-micromamba activate CPAP_v0.3.0 && gem install ruby-progressbar parallel
+#!/bin/bash
+set -euo pipefail
 
+micromamba env create -f environment.yaml
+micromamba run -n CPAP_v0.3.0 bundle install

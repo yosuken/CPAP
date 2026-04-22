@@ -13,6 +13,23 @@ CPAP generates heatmap-based visualization according to ...
 
 CPAP first computes sequence identity based on BLASTp results, then converted into an identity matrix and visualizes it by a heatmap and a dendrogram.
 
+## Installation
+
+```bash
+# 1. Clone the repository
+git clone <repo_url> && cd CPAP
+
+# 2. Create conda environment (micromamba, mamba, or conda)
+micromamba env create -f environment.yaml
+
+# 3. Install Ruby gems
+micromamba run -n CPAP_v0.3.0 bundle install
+```
+
+Or, run `bash install.sh` to perform steps 2-3 in one go.
+
+> **Note:** You can use `mamba` or `conda` in place of `micromamba`.
+
 ## Usage
 
 ```
@@ -27,7 +44,7 @@ $ CPAP [options] <input fasta> <output dir>
 - BLAST+
 - diamond
 - mmseqs2
-- ruby (ver >=2.0)
+- ruby (ver >=3.0)
 - R (ver >=3.0)
     - R package `gplots`     -- is used for heatmap drawing. (for install, try `install.packages('gplots')` in R terminal)
     - R package `phylogram`  -- is used for generation of a newick formatted dendrogram.

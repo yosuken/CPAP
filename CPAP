@@ -73,7 +73,7 @@ class CPAP
         - BLAST+
         - diamond
         - mmseqs2
-        - ruby (ver >=2.0)
+        - ruby (ver >=3.0)
         - R (ver >=3.0)
           - R package 'gplots'     -- is used for heatmap drawing. (for install, try install.packages('gplots') in R terminal)
           - R package 'phylogram'  -- is used for generation of a newick formatted dendrogram.
@@ -261,8 +261,8 @@ class CPAP
       end
     end
 
-    if RUBY_VERSION.to_f < 2.0
-      warn "#{ERRMSG} ruby (version >=2.0) is required. Aborting."
+    if RUBY_VERSION.to_f < 3.0
+      warn "#{ERRMSG} ruby (version >=3.0) is required. Aborting."
       exit 1
     end
   end
