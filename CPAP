@@ -15,8 +15,8 @@ require 'open3'
 
 # {{{ class CPAP
 class CPAP
-  VERSION  = "0.3.0"
-  MODIDATE = "2025-11-18"
+  VERSION  = "0.3.1"
+  MODIDATE = "2026-04-22"
 
   ERRMSG = "\e[1;31m[error]\e[0m"
   SCCMSG = "\e[1;32m[success]\e[0m"

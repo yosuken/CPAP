@@ -2,4 +2,4 @@
 set -euo pipefail
 
 micromamba env create -f environment.yaml
-micromamba run -n CPAP_v0.3.0 bundle install
+micromamba run -n CPAP_v0.3.1 bundle install

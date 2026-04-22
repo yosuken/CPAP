@@ -2,7 +2,7 @@
 
 **CPAP - Clustering and Phylogenetic Analyzer of Proteins/Nucleotides**
 
-ver 0.3.0 (2025-11-18)
+ver 0.3.1 (2026-04-22)
 
 ## Description
 
@@ -23,7 +23,7 @@ git clone <repo_url> && cd CPAP
 micromamba env create -f environment.yaml
 
 # 3. Install Ruby gems
-micromamba run -n CPAP_v0.3.0 bundle install
+micromamba run -n CPAP_v0.3.1 bundle install
 ```
 
 Or, run `bash install.sh` to perform steps 2-3 in one go.
